@@ -1,15 +1,12 @@
 name: Deploy to Hugging Face Space
 
-# Manually triggered. The HF token is supplied as a MASKED workflow input
-# (masked in logs via ::add-mask::, never written into the repo). Use a
-# throwaway token and revoke it after the run completes.
+# Manually triggered. Reads the HF write token from the repository secret
+# HF_TOKEN (encrypted by GitHub, masked in logs, never exposed). Add it at:
+# Settings > Secrets and variables > Actions > New repository secret.
 
 on:
   workflow_dispatch:
     inputs:
-      hf_token:
-        description: "Hugging Face write token (masked)"
-        required: true
       space_name:
         description: "Space name under your HF account"
         required: false
@@ -22,9 +19,6 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Mask token in logs
-        run: echo "::add-mask::${{ github.event.inputs.hf_token }}"
-
       - name: Checkout app files
         uses: actions/checkout@v4
 
@@ -38,7 +32,7 @@ jobs:
 
       - name: Create Space and upload files
         env:
-          HF_TOKEN: ${{ github.event.inputs.hf_token }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
           SPACE_NAME: ${{ github.event.inputs.space_name }}
         run: |
           python - <<'PY'
@@ -47,7 +41,8 @@ jobs:
 
           token = os.environ.get("HF_TOKEN")
           if not token:
-              sys.exit("ERROR: no token provided")
+              sys.exit("ERROR: HF_TOKEN secret is not set. Add it in "
+                       "Settings > Secrets and variables > Actions.")
 
           api = HfApi(token=token)
           user = api.whoami()["name"]
