@@ -1,0 +1,73 @@
+name: Deploy to Hugging Face Space
+
+# Runs on GitHub's runners (which can reach huggingface.co) and pushes the
+# app files to a Gradio Space. The HF token is read from the repo secret
+# HF_TOKEN and is never exposed outside the Actions run.
+
+# Manual trigger only. Before running, add your Hugging Face write token as a
+# repository secret named HF_TOKEN (Settings > Secrets and variables > Actions).
+# This workflow is optional: the Space can also be created by uploading the
+# files manually at https://huggingface.co/new-space.
+on:
+  workflow_dispatch:
+    inputs:
+      space_name:
+        description: "Space name (under your HF account)"
+        required: false
+        default: "insurance-charge-predictor"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Hugging Face Hub
+        run: pip install --upgrade huggingface_hub
+
+      - name: Create Space and upload files
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          SPACE_NAME: ${{ github.event.inputs.space_name || 'insurance-charge-predictor' }}
+        run: |
+          python - <<'PY'
+          import os, sys
+          from huggingface_hub import HfApi
+
+          token = os.environ.get("HF_TOKEN")
+          if not token:
+              sys.exit("ERROR: HF_TOKEN secret is not set. Add it in "
+                       "Settings > Secrets and variables > Actions.")
+
+          api = HfApi(token=token)
+          user = api.whoami()["name"]
+          repo_id = f"{user}/{os.environ['SPACE_NAME']}"
+
+          api.create_repo(
+              repo_id=repo_id,
+              repo_type="space",
+              space_sdk="gradio",
+              exist_ok=True,
+              private=False,
+          )
+
+          for fname in ["app.py", "insurance.csv", "requirements.txt", "README.md"]:
+              api.upload_file(
+                  path_or_fileobj=fname,
+                  path_in_repo=fname,
+                  repo_id=repo_id,
+                  repo_type="space",
+              )
+              print("uploaded", fname)
+
+          print(f"DEPLOYED: https://huggingface.co/spaces/{repo_id}")
+          PY
