@@ -1,20 +1,19 @@
 name: Deploy to Hugging Face Space
 
-# Runs on GitHub's runners (which can reach huggingface.co) and pushes the
-# app files to a Gradio Space. The HF token is read from the repo secret
-# HF_TOKEN and is never exposed outside the Actions run.
+# Manually triggered. The HF token is supplied as a MASKED workflow input
+# (masked in logs via ::add-mask::, never written into the repo). Use a
+# throwaway token and revoke it after the run completes.
 
-# Manual trigger only. Before running, add your Hugging Face write token as a
-# repository secret named HF_TOKEN (Settings > Secrets and variables > Actions).
-# This workflow is optional: the Space can also be created by uploading the
-# files manually at https://huggingface.co/new-space.
 on:
   workflow_dispatch:
     inputs:
+      hf_token:
+        description: "Hugging Face write token (masked)"
+        required: true
       space_name:
-        description: "Space name (under your HF account)"
+        description: "Space name under your HF account"
         required: false
-        default: "insurance-charge-predictor"
+        default: "ml"
 
 permissions:
   contents: read
@@ -23,7 +22,10 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Mask token in logs
+        run: echo "::add-mask::${{ github.event.inputs.hf_token }}"
+
+      - name: Checkout app files
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -36,8 +38,8 @@ jobs:
 
       - name: Create Space and upload files
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          SPACE_NAME: ${{ github.event.inputs.space_name || 'insurance-charge-predictor' }}
+          HF_TOKEN: ${{ github.event.inputs.hf_token }}
+          SPACE_NAME: ${{ github.event.inputs.space_name }}
         run: |
           python - <<'PY'
           import os, sys
@@ -45,12 +47,12 @@ jobs:
 
           token = os.environ.get("HF_TOKEN")
           if not token:
-              sys.exit("ERROR: HF_TOKEN secret is not set. Add it in "
-                       "Settings > Secrets and variables > Actions.")
+              sys.exit("ERROR: no token provided")
 
           api = HfApi(token=token)
           user = api.whoami()["name"]
           repo_id = f"{user}/{os.environ['SPACE_NAME']}"
+          print("Target Space:", repo_id)
 
           api.create_repo(
               repo_id=repo_id,
